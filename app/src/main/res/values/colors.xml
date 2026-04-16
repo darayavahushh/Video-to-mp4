@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary palette – muted blue-grey tones -->
+    <color name="primary">#FF37474F</color>          <!-- Blue Grey 800 -->
+    <color name="primary_dark">#FF263238</color>      <!-- Blue Grey 900 -->
+    <color name="primary_variant">#FF455A64</color>   <!-- Blue Grey 700 -->
+    <color name="secondary">#FF607D8B</color>         <!-- Blue Grey 500 -->
+    <color name="secondary_variant">#FF78909C</color> <!-- Blue Grey 400 -->
+
+    <!-- Accent – soft teal -->
+    <color name="accent">#FF4DB6AC</color>            <!-- Teal 300 -->
+    <color name="accent_dark">#FF00897B</color>       <!-- Teal 600 -->
+
+    <!-- Backgrounds -->
+    <color name="background">#FF1E1E2E</color>        <!-- Deep charcoal -->
+    <color name="surface">#FF2A2A3C</color>           <!-- Slightly lighter -->
+    <color name="card_bg">#FF32324A</color>           <!-- Card surface -->
+
+    <!-- Text -->
+    <color name="text_primary">#FFDDE1E6</color>      <!-- Soft white -->
+    <color name="text_secondary">#FF9BA3AB</color>     <!-- Muted grey -->
+    <color name="text_hint">#FF6B7280</color>          <!-- Dim hint -->
+
+    <!-- Status colors -->
+    <color name="success">#FF66BB6A</color>            <!-- Green 400 -->
+    <color name="error">#FFEF5350</color>              <!-- Red 400 -->
+    <color name="warning">#FFFFA726</color>            <!-- Orange 400 -->
+
+    <!-- Button -->
+    <color name="btn_primary">#FF4DB6AC</color>
+    <color name="btn_primary_pressed">#FF00897B</color>
+    <color name="btn_disabled">#FF4A4A5A</color>
+
+    <!-- Divider & borders -->
+    <color name="divider">#FF3D3D54</color>
+
+    <!-- Progress bar -->
+    <color name="progress_track">#FF3D3D54</color>
+    <color name="progress_indicator">#FF4DB6AC</color>
+
+    <!-- Spinner / dropdown -->
+    <color name="spinner_bg">#FF32324A</color>
+
+    <!-- Status bar / navigation bar -->
+    <color name="status_bar">#FF161625</color>
+</resources>

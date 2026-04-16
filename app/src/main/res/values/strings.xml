@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Video Converter</string>
+    <string name="select_files">Select Videos</string>
+    <string name="clear_all">Clear All</string>
+    <string name="convert">Convert</string>
+    <string name="input_format">Input Format</string>
+    <string name="output_format">Output Format</string>
+    <string name="no_files_selected">No files selected</string>
+    <string name="converting">Converting…</string>
+</resources>

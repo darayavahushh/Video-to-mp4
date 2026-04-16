@@ -1,0 +1,46 @@
+# ─── Build outputs ─────────────────────────────────────────────
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/app/build/
+/captures
+.externalNativeBuild/
+.cxx/
+local.properties
+
+# ─── Gradle wrapper jar (download via gradle wrapper task) ────
+# gradle/wrapper/gradle-wrapper.jar
+
+# ─── IDE ──────────────────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+# ─── OS generated ────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ─── Signing ─────────────────────────────────────────────────
+*.jks
+*.keystore
+keystore.properties
+
+# ─── APK / AAB outputs ──────────────────────────────────────
+*.apk
+*.aab
+
+# ─── Kotlin ──────────────────────────────────────────────────
+*.kotlin_module
+
+# ─── Misc ────────────────────────────────────────────────────
+/out/
