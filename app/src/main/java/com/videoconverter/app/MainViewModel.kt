@@ -2,17 +2,20 @@ package com.videoconverter.app
 
 import android.app.Application
 import android.content.ContentResolver
+import android.content.ContentValues
 import android.database.Cursor
+import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.FFmpegKitConfig
 import com.arthenica.ffmpegkit.ReturnCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -23,6 +26,10 @@ import java.io.File
  * ViewModel that manages selected video files, conversion state, and progress.
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+
+    companion object {
+        private const val TAG = "VideoConverter"
+    }
 
     // ── Supported formats ──────────────────────────────────────────────────
     val supportedFormats = listOf("mp4", "mkv", "avi", "mov", "webm", "flv", "wmv", "mpeg")
@@ -59,6 +66,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ── Last conversion errors ────────────────────────────────────────────
     private val _errorMessage = MutableLiveData<String?>(null)
     val errorMessage: LiveData<String?> = _errorMessage
+
+    // ─── MIME type mapping ────────────────────────────────────────────────
+    private fun mimeTypeForFormat(format: String): String = when (format) {
+        "mp4" -> "video/mp4"
+        "mkv" -> "video/x-matroska"
+        "avi" -> "video/x-msvideo"
+        "mov" -> "video/quicktime"
+        "webm" -> "video/webm"
+        "flv" -> "video/x-flv"
+        "wmv" -> "video/x-ms-wmv"
+        "mpeg" -> "video/mpeg"
+        else -> "video/*"
+    }
 
     // ─── Add files from URIs returned by the file picker ──────────────────
     fun addFiles(uris: List<Uri>) {
@@ -100,6 +120,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (absolutePath == null) {
                 absolutePath = resolvePathFromUri(uri)
             }
+
+            Log.d(TAG, "Added file: name=$displayName, path=$absolutePath, size=$size, uri=$uri")
 
             current.add(
                 VideoFile(
@@ -148,26 +170,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val errors = mutableListOf<String>()
 
-            for ((index, videoFile) in files.withIndex()) {
-                withContext(Dispatchers.Main) {
-                    _currentFileIndex.value = index + 1
-                    _statusMessage.value = "Converting ${index + 1} / ${files.size}: ${videoFile.displayName}"
-                }
+            try {
+                for ((index, videoFile) in files.withIndex()) {
+                    withContext(Dispatchers.Main) {
+                        _currentFileIndex.value = index + 1
+                        _statusMessage.value = "Converting ${index + 1} / ${files.size}: ${videoFile.displayName}"
+                    }
 
-                val inputPath = videoFile.absolutePath
-                if (inputPath == null) {
-                    // Fall back: copy the URI content to a temp file, convert, then copy back
-                    val result = convertViaUri(videoFile, outputFormat)
-                    if (result != null) errors.add(result)
-                } else {
-                    val result = convertDirectPath(inputPath, outputFormat, videoFile.lastModified)
-                    if (result != null) errors.add(result)
-                    else _originalInputPaths.add(inputPath)
-                }
+                    Log.d(TAG, "Starting conversion ${index + 1}/${files.size}: " +
+                            "${videoFile.displayName}, absolutePath=${videoFile.absolutePath}")
 
-                withContext(Dispatchers.Main) {
-                    _progress.value = ((index + 1) * 100) / files.size
+                    val result = convertFile(videoFile, outputFormat)
+                    if (result != null) errors.add(result)
+
+                    withContext(Dispatchers.Main) {
+                        _progress.value = ((index + 1) * 100) / files.size
+                    }
                 }
+            } catch (e: Throwable) {
+                // Catch everything including java.lang.Error from native library failures
+                Log.e(TAG, "Conversion failed with exception", e)
+                errors.add("FFmpeg engine error: ${e.message ?: e.javaClass.simpleName}")
             }
 
             withContext(Dispatchers.Main) {
@@ -184,100 +207,217 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ─── Convert using a direct file path ────────────────────────────────
-    private fun convertDirectPath(
-        inputPath: String,
-        outputFormat: String,
-        originalTimestamp: Long
-    ): String? {
-        val inputFile = File(inputPath)
-        if (!inputFile.exists()) return "File not found: $inputPath"
-
-        val baseName = inputFile.nameWithoutExtension
-        val parentDir = inputFile.parentFile ?: return "Cannot resolve parent directory"
-        val outputFile = File(parentDir, "$baseName.$outputFormat")
-
-        // If input and output are the same, skip
-        if (inputFile.absolutePath == outputFile.absolutePath) {
-            return "Input and output are the same file: ${inputFile.name}"
-        }
-
-        // Use a temp output to avoid overwriting issues
-        val tempOutput = File(parentDir, "${baseName}_converting_tmp.$outputFormat")
-
-        // Build FFmpeg command
-        val cmd = "-y -i \"${inputFile.absolutePath}\" -c copy \"${tempOutput.absolutePath}\""
-
-        val session = FFmpegKit.execute(cmd)
-
-        return if (ReturnCode.isSuccess(session.returnCode)) {
-            // If a file with the target name already exists, delete it
-            if (outputFile.exists()) outputFile.delete()
-            tempOutput.renameTo(outputFile)
-
-            // Restore original timestamp
-            if (originalTimestamp > 0) {
-                outputFile.setLastModified(originalTimestamp)
-            } else if (inputFile.lastModified() > 0) {
-                outputFile.setLastModified(inputFile.lastModified())
-            }
-
-            _convertedOutputPaths.add(outputFile.absolutePath)
-            null // success
-        } else {
-            tempOutput.delete()
-            "Failed to convert ${inputFile.name}: ${session.output?.take(200) ?: "unknown error"}"
-        }
-    }
-
-    // ─── Convert via content URI (copy to cache, convert, copy back) ─────
-    private fun convertViaUri(videoFile: VideoFile, outputFormat: String): String? {
+    // ═══════════════════════════════════════════════════════════════════════
+    //  Unified conversion:
+    //    1. Copy source URI → app cache (guarantees readable file path)
+    //    2. FFmpeg convert in cache
+    //    3. Copy result to final destination (next to original, or Movies/VideoConverter)
+    //    4. MediaStore scan so the file is visible immediately
+    // ═══════════════════════════════════════════════════════════════════════
+    private fun convertFile(videoFile: VideoFile, outputFormat: String): String? {
         val context = getApplication<Application>()
         val resolver = context.contentResolver
+        val cacheDir = context.cacheDir
 
+        val baseName = videoFile.displayName.substringBeforeLast(".")
+        val outputFileName = "$baseName.$outputFormat"
+
+        // If input and output names are the same extension, skip
+        if (videoFile.displayName.equals(outputFileName, ignoreCase = true)) {
+            return "Input and output are the same format: ${videoFile.displayName}"
+        }
+
+        // ── Step 1: Copy source to cache ──────────────────────────────────
+        val tempInput = File(cacheDir, "in_${System.currentTimeMillis()}_${videoFile.displayName}")
         try {
-            // Copy input to cache
-            val cacheDir = context.cacheDir
-            val tempInput = File(cacheDir, "input_${System.currentTimeMillis()}_${videoFile.displayName}")
-            resolver.openInputStream(videoFile.uri)?.use { input ->
-                tempInput.outputStream().use { output -> input.copyTo(output) }
+            resolver.openInputStream(videoFile.uri)?.use { inputStream ->
+                tempInput.outputStream().use { out -> inputStream.copyTo(out) }
             } ?: return "Cannot read file: ${videoFile.displayName}"
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to copy input to cache", e)
+            return "Cannot read file: ${videoFile.displayName} (${e.message})"
+        }
 
-            val baseName = videoFile.displayName.substringBeforeLast(".")
-            val tempOutput = File(cacheDir, "${baseName}.$outputFormat")
+        Log.d(TAG, "Copied input to cache: ${tempInput.absolutePath} (${tempInput.length()} bytes)")
 
-            val cmd = "-y -i \"${tempInput.absolutePath}\" -c copy \"${tempOutput.absolutePath}\""
+        // ── Step 2: FFmpeg conversion in cache ────────────────────────────
+        val tempOutput = File(cacheDir, "out_${System.currentTimeMillis()}_$outputFileName")
+
+        val cmd = "-y -i \"${tempInput.absolutePath}\" -c copy \"${tempOutput.absolutePath}\""
+        Log.d(TAG, "FFmpeg command: $cmd")
+
+        val ffmpegResult = try {
             val session = FFmpegKit.execute(cmd)
-
-            return if (ReturnCode.isSuccess(session.returnCode)) {
-                // Restore timestamp
-                if (videoFile.lastModified > 0) {
-                    tempOutput.setLastModified(videoFile.lastModified)
-                }
-
-                // Try to write back next to original – put in Downloads as fallback
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(
-                    Environment.DIRECTORY_DOWNLOADS
-                )
-                val finalOutput = File(downloadsDir, "${baseName}.$outputFormat")
-                tempOutput.copyTo(finalOutput, overwrite = true)
-                if (videoFile.lastModified > 0) {
-                    finalOutput.setLastModified(videoFile.lastModified)
-                }
-                _convertedOutputPaths.add(finalOutput.absolutePath)
-
-                // Cleanup temp files
-                tempInput.delete()
-                tempOutput.delete()
-
+            val rc = session.returnCode
+            Log.d(TAG, "FFmpeg return code: $rc")
+            if (ReturnCode.isSuccess(rc)) {
                 null // success
             } else {
-                tempInput.delete()
-                tempOutput.delete()
-                "Failed to convert ${videoFile.displayName}: ${session.output?.take(200) ?: "unknown error"}"
+                val output = session.output?.take(300) ?: "unknown error"
+                Log.e(TAG, "FFmpeg failed: $output")
+                "FFmpeg error: $output"
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "FFmpeg execution threw", e)
+            "FFmpeg engine error: ${e.message ?: e.javaClass.simpleName}"
+        }
+
+        // Clean up input temp
+        tempInput.delete()
+
+        if (ffmpegResult != null) {
+            tempOutput.delete()
+            return "Failed to convert ${videoFile.displayName}: $ffmpegResult"
+        }
+
+        if (!tempOutput.exists() || tempOutput.length() == 0L) {
+            Log.e(TAG, "FFmpeg succeeded but output file is missing or empty")
+            tempOutput.delete()
+            return "Conversion produced no output for ${videoFile.displayName}"
+        }
+
+        Log.d(TAG, "FFmpeg output: ${tempOutput.absolutePath} (${tempOutput.length()} bytes)")
+
+        // ── Step 3: Move result to final destination ──────────────────────
+        val finalPath = moveToFinalDestination(
+            tempOutput, videoFile, outputFileName, outputFormat
+        )
+
+        // Clean up temp output (moveToFinalDestination copies it elsewhere)
+        if (finalPath != null && finalPath != tempOutput.absolutePath) {
+            tempOutput.delete()
+        }
+
+        if (finalPath == null) {
+            tempOutput.delete()
+            return "Could not save output file for ${videoFile.displayName}"
+        }
+
+        // ── Step 4: Restore timestamp ─────────────────────────────────────
+        val finalFile = File(finalPath)
+        if (videoFile.lastModified > 0 && finalFile.exists()) {
+            finalFile.setLastModified(videoFile.lastModified)
+        }
+
+        // ── Step 5: Trigger MediaStore scan ───────────────────────────────
+        scanFile(finalPath, mimeTypeForFormat(outputFormat))
+
+        _convertedOutputPaths.add(finalPath)
+        if (videoFile.absolutePath != null) {
+            _originalInputPaths.add(videoFile.absolutePath!!)
+        }
+
+        Log.i(TAG, "Conversion complete: ${videoFile.displayName} → $finalPath")
+        return null // success
+    }
+
+    // ─── Move converted file to the right place ──────────────────────────
+    private fun moveToFinalDestination(
+        tempOutput: File,
+        videoFile: VideoFile,
+        outputFileName: String,
+        outputFormat: String
+    ): String? {
+        val context = getApplication<Application>()
+
+        // Strategy 1: Write next to original via direct file path
+        val originalPath = videoFile.absolutePath
+        if (originalPath != null) {
+            val originalFile = File(originalPath)
+            val parentDir = originalFile.parentFile
+            if (parentDir != null && parentDir.exists() && parentDir.canWrite()) {
+                val target = File(parentDir, outputFileName)
+                try {
+                    if (target.exists()) target.delete()
+                    tempOutput.copyTo(target, overwrite = true)
+                    if (target.exists() && target.length() > 0) {
+                        Log.d(TAG, "Saved next to original: ${target.absolutePath}")
+                        return target.absolutePath
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cannot write next to original: ${e.message}")
+                }
+            } else {
+                Log.w(TAG, "Parent dir not writable: parentDir=$parentDir, " +
+                        "exists=${parentDir?.exists()}, canWrite=${parentDir?.canWrite()}")
+            }
+        }
+
+        // Strategy 2: Use MediaStore to insert into Movies/VideoConverter (Android 10+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val values = ContentValues().apply {
+                    put(MediaStore.Video.Media.DISPLAY_NAME, outputFileName)
+                    put(MediaStore.Video.Media.MIME_TYPE, mimeTypeForFormat(outputFormat))
+                    put(
+                        MediaStore.Video.Media.RELATIVE_PATH,
+                        Environment.DIRECTORY_MOVIES + "/VideoConverter"
+                    )
+                }
+                val uri = context.contentResolver.insert(
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values
+                )
+                if (uri != null) {
+                    context.contentResolver.openOutputStream(uri)?.use { outStream ->
+                        tempOutput.inputStream().use { inStream ->
+                            inStream.copyTo(outStream)
+                        }
+                    }
+                    // Resolve the actual file path for display
+                    val savedPath = resolveMediaStoreFilePath(uri)
+                        ?: "${Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)}/VideoConverter/$outputFileName"
+                    Log.d(TAG, "Saved via MediaStore: $savedPath (uri=$uri)")
+                    return savedPath
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "MediaStore insert failed: ${e.message}")
+            }
+        }
+
+        // Strategy 3: Fall back to the Downloads directory
+        try {
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_DOWNLOADS
+            )
+            if (!downloadsDir.exists()) downloadsDir.mkdirs()
+            val target = File(downloadsDir, outputFileName)
+            tempOutput.copyTo(target, overwrite = true)
+            if (target.exists() && target.length() > 0) {
+                Log.d(TAG, "Saved to Downloads: ${target.absolutePath}")
+                return target.absolutePath
             }
         } catch (e: Exception) {
-            return "Error converting ${videoFile.displayName}: ${e.message}"
+            Log.w(TAG, "Downloads fallback failed: ${e.message}")
+        }
+
+        Log.w(TAG, "All output strategies failed for $outputFileName")
+        return null
+    }
+
+    // ─── Resolve file path from MediaStore URI ───────────────────────────
+    private fun resolveMediaStoreFilePath(uri: Uri): String? {
+        val context = getApplication<Application>()
+        try {
+            context.contentResolver.query(
+                uri, arrayOf(MediaStore.MediaColumns.DATA),
+                null, null, null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+                    if (idx >= 0) return cursor.getString(idx)
+                }
+            }
+        } catch (_: Exception) { }
+        return null
+    }
+
+    // ─── Trigger MediaStore scan so files appear immediately ─────────────
+    private fun scanFile(path: String, mimeType: String) {
+        val context = getApplication<Application>()
+        MediaScannerConnection.scanFile(
+            context, arrayOf(path), arrayOf(mimeType)
+        ) { scannedPath, uri ->
+            Log.d(TAG, "MediaScanner completed: path=$scannedPath, uri=$uri")
         }
     }
 
@@ -286,7 +426,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         var deleted = 0
         for (path in _originalInputPaths) {
             val file = File(path)
-            if (file.exists() && file.delete()) deleted++
+            if (file.exists() && file.delete()) {
+                deleted++
+                scanFile(path, "video/*")
+            }
         }
 
         // Also try deleting via ContentResolver for files added through URIs

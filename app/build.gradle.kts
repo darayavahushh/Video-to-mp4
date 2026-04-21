@@ -60,8 +60,8 @@ dependencies {
     implementation("androidx.recyclerview:recyclerview:1.3.2")
 
     // FFmpeg Kit - community fork (original arthenica retired April 2025)
-    // Full GPL build supports all codecs
-    implementation("io.github.jamaismagic.ffmpeg:ffmpeg-kit-main-full-gpl-16kb:6.1.4")
+    // LTS build – broader device compatibility (avoids libavdevice HID symbol issues on API 35+)
+    implementation("io.github.jamaismagic.ffmpeg:ffmpeg-kit-lts-16kb:6.1.7")
 
     // DocumentFile for SAF
     implementation("androidx.documentfile:documentfile:1.0.1")
