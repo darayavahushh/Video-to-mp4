@@ -28,12 +28,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 
     buildFeatures {
@@ -59,8 +59,9 @@ dependencies {
     // RecyclerView
     implementation("androidx.recyclerview:recyclerview:1.3.2")
 
-    // FFmpeg Kit - full GPL build supports all codecs
-    implementation("com.arthenica:ffmpeg-kit-full-gpl:6.0-2")
+    // FFmpeg Kit - community fork (original arthenica retired April 2025)
+    // Full GPL build supports all codecs
+    implementation("io.github.jamaismagic.ffmpeg:ffmpeg-kit-main-full-gpl-16kb:6.1.4")
 
     // DocumentFile for SAF
     implementation("androidx.documentfile:documentfile:1.0.1")
