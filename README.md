@@ -22,7 +22,7 @@ Built with **Kotlin**, **Android Jetpack**, and [FFmpeg Kit](https://github.com/
 
 ## Screenshots
 
-> *Add screenshots here after building the app.*
+<img width="200" alt="VideoConverter_screenshot" src="https://github.com/user-attachments/assets/49e1be5e-cbb3-43da-929e-e4f496d451b2" />
 
 ---
 
