@@ -8,7 +8,7 @@ This guide walks you through setting up the development environment to build and
 
 ### 1. Java Development Kit (JDK)
 
-Android Gradle Plugin 8.2 requires **JDK 17** or newer.
+Android Gradle Plugin 8.13.2 requires **JDK 17** or newer.
 
 | Platform | Install command |
 |---|---|
@@ -35,7 +35,7 @@ JAVA_HOME = C:\Program Files\Eclipse Adoptium\jdk-17.x.x-hotspot
 
 ### 2. Android Studio
 
-Download and install **Android Studio Hedgehog (2023.1.1)** or later from:  
+Download and install **Android Studio Meerkat (2025.3.3)** or later from:  
 <https://developer.android.com/studio>
 
 During setup, make sure the following SDK components are installed (via **SDK Manager**):
@@ -87,12 +87,12 @@ Then open the folder in Android Studio:
 ## Gradle Wrapper
 
 The project ships a `gradlew.bat` (Windows) wrapper script and `gradle/wrapper/gradle-wrapper.properties`.  
-The wrapper downloads Gradle **8.5** automatically on first run.
+The wrapper downloads Gradle **8.13** automatically on first run.
 
 > **Note:** The `gradle-wrapper.jar` binary is not included in the repo. Android Studio will generate it on first sync, or you can run:
 >
 > ```bash
-> gradle wrapper --gradle-version 8.5
+> gradle wrapper --gradle-version 8.13
 > ```
 >
 > (Requires a system-wide Gradle install just for this one command.)
@@ -162,7 +162,7 @@ Video-to-mp4/
 
 | Library | Purpose |
 |---|---|
-| `ffmpeg-kit-full-gpl:6.0-2` | FFmpeg engine for video conversion |
+| `io.github.jamaismagic.ffmpeg:ffmpeg-kit-lts-16kb:6.1.7` | FFmpeg engine for video conversion (community fork, LTS build) |
 | `material:1.11.0` | Material Design components |
 | `lifecycle-viewmodel-ktx` | MVVM architecture |
 | `activity-ktx` | `viewModels()` delegate |
@@ -204,7 +204,7 @@ Dependencies are declared in [app/build.gradle.kts](build.gradle.kts).
 | `SDK location not found` | Create `local.properties` with your `sdk.dir` path |
 | Gradle sync fails | Make sure JDK 17+ is installed and `JAVA_HOME` is set |
 | Emulator too slow for FFmpeg | Test on a physical device – FFmpeg is CPU-intensive |
-| `MANAGE_EXTERNAL_STORAGE` denied | The app falls back to the system document picker, but converted files may land in Downloads instead of next to the originals |
+| `MANAGE_EXTERNAL_STORAGE` denied | The app falls back to saving in `Movies/VideoConverter/` or `Downloads/` instead of next to the originals |
 
 ---
 

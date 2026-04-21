@@ -2,7 +2,7 @@
 
 A clean, dark-themed Android application that converts video files between popular formats (`.mkv`, `.avi`, `.mp4`, `.mov`, `.webm`, `.flv`, `.wmv`, `.mpeg`).
 
-Built with **Kotlin**, **Android Jetpack**, and [FFmpeg Kit](https://github.com/arthenica/ffmpeg-kit) for reliable on-device transcoding.
+Built with **Kotlin**, **Android Jetpack**, and [FFmpeg Kit](https://github.com/jamaismagic/ffmpeg-kit) (community fork) for reliable on-device transcoding.
 
 ---
 
@@ -12,7 +12,7 @@ Built with **Kotlin**, **Android Jetpack**, and [FFmpeg Kit](https://github.com/
 |---|---|
 | **Multi-file selection** | Pick any number of videos from your device at once |
 | **Format conversion** | Convert between MP4, MKV, AVI, MOV, WebM, FLV, WMV, MPEG |
-| **Preserves file name & location** | Output file is saved next to the original with the same base name |
+| **Preserves file name** | Output keeps the same base name. Saved next to the original when possible, otherwise in `Movies/VideoConverter/` or `Downloads/` |
 | **Preserves timestamps** | The original file's last-modified date is kept on the converted file |
 | **Delete originals prompt** | After conversion finishes, choose whether to delete the input files |
 | **Dark UI** | Dim, eye-friendly colour palette that isn't harsh on your eyes |
@@ -86,7 +86,8 @@ gradlew.bat assembleDebug      # Windows
 4. **Convert**  
    Tap the big **Convert** button.  
    - A progress bar and file counter appear while the conversion runs.  
-   - Converted files are saved **in the same folder** as the original, keeping the same base name (e.g. `holiday.mkv` → `holiday.mp4`).  
+- Converted files keep the same base name (e.g. `holiday.mkv` → `holiday.mp4`).
+   - When possible they are saved next to the original; otherwise they go to `Movies/VideoConverter/` or `Downloads/`.
    - The original timestamp of each file is preserved.
 
 5. **Delete originals?**  
@@ -109,15 +110,15 @@ gradlew.bat assembleDebug      # Windows
 
 ## Tech Stack
 
-- **Language:** Kotlin 1.9
+- **Language:** Kotlin 2.1
 - **Min SDK:** 24 (Android 7.0)
 - **UI:** XML layouts + Material Components
 - **Architecture:** MVVM (ViewModel + LiveData)
-- **Video engine:** [FFmpeg Kit 6.0](https://github.com/arthenica/ffmpeg-kit) (full-gpl build)
-- **Build system:** Gradle 8.5 + AGP 8.2
+- **Video engine:** [FFmpeg Kit 6.1 LTS](https://github.com/jamaismagic/ffmpeg-kit) (community fork, 16 KB page-size build)
+- **Build system:** Gradle 8.13 + AGP 8.13.2
 
 ---
 
 ## License
 
-This project is provided as-is for personal use. FFmpeg Kit is licensed under LGPL v3 / GPL v3 – see [FFmpeg Kit License](https://github.com/arthenica/ffmpeg-kit/blob/main/LICENSE) for details.
+This project is provided as-is for personal use. FFmpeg Kit is licensed under LGPL v3 / GPL v3 – see [FFmpeg Kit License](https://github.com/jamaismagic/ffmpeg-kit/blob/main/LICENSE) for details.
