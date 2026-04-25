@@ -8,6 +8,7 @@ import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
@@ -60,8 +61,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ── Paths of successfully converted output files ──────────────────────
     private val _convertedOutputPaths = mutableListOf<String>()
 
-    // ── Paths of original input files (for deletion) ──────────────────────
+    // ── Paths/URIs of original input files (for deletion) ─────────────────
     private val _originalInputPaths = mutableListOf<String>()
+    private val _originalInputUris = mutableListOf<Uri>()
 
     // ── Last conversion errors ────────────────────────────────────────────
     private val _errorMessage = MutableLiveData<String?>(null)
@@ -165,6 +167,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _currentFileIndex.value = 0
         _convertedOutputPaths.clear()
         _originalInputPaths.clear()
+        _originalInputUris.clear()
         _errorMessage.value = null
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -243,7 +246,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // ── Step 2: FFmpeg conversion in cache ────────────────────────────
         val tempOutput = File(cacheDir, "out_${System.currentTimeMillis()}_$outputFileName")
 
-        val cmd = "-y -i \"${tempInput.absolutePath}\" -c copy \"${tempOutput.absolutePath}\""
+        // Build a format-aware command.
+        // "-c copy" silently fails for AVI→MP4 when the source audio codec (e.g. PCM/MP3)
+        // is not allowed in the MP4 container.  Use proper transcoding codecs instead.
+        val codecArgs = when (outputFormat.lowercase()) {
+            // -pix_fmt yuv420p: normalise chroma subsampling (camera AVIs often use YUV422/MJPEG)
+            // -movflags +faststart: move moov atom to front so the file is playable from the start
+            "mp4"  -> "-c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 128k"
+            "mov"  -> "-c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 128k"
+            "mkv"  -> "-c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 128k"
+            "webm" -> "-c:v libvpx-vp9 -crf 30 -b:v 0 -pix_fmt yuv420p -c:a libopus"
+            else   -> "-c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 128k"
+        }
+        val cmd = "-y -i \"${tempInput.absolutePath}\" $codecArgs \"${tempOutput.absolutePath}\""
         Log.d(TAG, "FFmpeg command: $cmd")
 
         val ffmpegResult = try {
@@ -253,9 +268,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (ReturnCode.isSuccess(rc)) {
                 null // success
             } else {
-                val output = session.output?.take(300) ?: "unknown error"
-                Log.e(TAG, "FFmpeg failed: $output")
-                "FFmpeg error: $output"
+                // FFmpeg always prints the actual error at the end of output.
+                // Take the last 15 non-blank lines to get the real failure reason.
+                val fullOutput = session.output ?: "unknown error"
+                val relevantOutput = fullOutput.lines()
+                    .filter { it.isNotBlank() }
+                    .takeLast(15)
+                    .joinToString("\n")
+                    .ifBlank { "return code ${rc.value}" }
+                Log.e(TAG, "FFmpeg failed. Full output:\n$fullOutput")
+                "FFmpeg error converting ${videoFile.displayName}:\n$relevantOutput"
             }
         } catch (e: Throwable) {
             Log.e(TAG, "FFmpeg execution threw", e)
@@ -303,6 +325,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         scanFile(finalPath, mimeTypeForFormat(outputFormat))
 
         _convertedOutputPaths.add(finalPath)
+        _originalInputUris.add(videoFile.uri)
         if (videoFile.absolutePath != null) {
             _originalInputPaths.add(videoFile.absolutePath!!)
         }
@@ -424,30 +447,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ─── Delete original input files ─────────────────────────────────────
     fun deleteOriginalFiles(): Int {
         var deleted = 0
-        for (path in _originalInputPaths) {
-            val file = File(path)
-            if (file.exists() && file.delete()) {
-                deleted++
-                scanFile(path, "video/*")
-            }
-        }
-
-        // Also try deleting via ContentResolver for files added through URIs
         val resolver = getApplication<Application>().contentResolver
-        val files = _videoFiles.value.orEmpty()
-        for (videoFile in files) {
-            if (videoFile.absolutePath != null && _originalInputPaths.contains(videoFile.absolutePath)) {
-                continue // already handled above
-            }
+
+        for ((index, uri) in _originalInputUris.withIndex()) {
+            var success = false
+
+            // Attempt 1: DocumentsContract.deleteDocument — correct API for SAF URIs
+            // (OpenMultipleDocuments gives content://...documents/document/... URIs)
             try {
-                val rows = resolver.delete(videoFile.uri, null, null)
-                if (rows > 0) deleted++
-            } catch (_: Exception) {
-                // Some URIs may not support deletion
+                success = DocumentsContract.deleteDocument(resolver, uri)
+                if (success) {
+                    deleted++
+                    Log.d(TAG, "Deleted via DocumentsContract: $uri")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "DocumentsContract.deleteDocument failed for $uri: ${e.message}")
+            }
+
+            // Attempt 2: ContentResolver.delete (works for plain MediaStore URIs)
+            if (!success) {
+                try {
+                    val rows = resolver.delete(uri, null, null)
+                    if (rows > 0) {
+                        success = true
+                        deleted++
+                        Log.d(TAG, "Deleted via ContentResolver: $uri")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "ContentResolver.delete failed for $uri: ${e.message}")
+                }
+            }
+
+            // Attempt 3: File.delete() via absolute path as last resort
+            if (!success) {
+                val path = _originalInputPaths.getOrNull(index)
+                if (path != null) {
+                    val file = File(path)
+                    if (file.exists() && file.delete()) {
+                        deleted++
+                        scanFile(path, "video/*")
+                        Log.d(TAG, "Deleted via File: $path")
+                    } else {
+                        Log.w(TAG, "All delete attempts failed for uri=$uri path=$path")
+                    }
+                } else {
+                    Log.w(TAG, "No path found for uri=$uri, skipping File.delete()")
+                }
             }
         }
 
         _originalInputPaths.clear()
+        _originalInputUris.clear()
         return deleted
     }
 
